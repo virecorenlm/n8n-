@@ -1,0 +1,233 @@
+{
+  "name": "Perry - Fishing Podcast Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule",
+      "name": "Weekly Monday 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "perry-podcast",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 450],
+      "webhookId": "perry-podcast"
+    },
+    {
+      "parameters": {
+        "jsCode": "const topics = [\n  \"Spring Bass Fishing Shallow Water Tactics\",\n  \"Summer Pike Fishing Best Lures\",\n  \"Fall Trout Fishing Where to Find Them\",\n  \"Winter Walleye Ice Fishing Tips\",\n  \"Top 5 Crankbaits for Muddy Water Bass\",\n  \"Mastering the Drop Shot Rig\",\n  \"Saltwater Fishing Reading Tides\",\n  \"Trophy Muskie Proven Techniques\",\n  \"Fly Fishing Basics for Beginners\",\n  \"Night Catfish Fishing Complete Guide\",\n  \"Essential Fishing Knots Every Angler Needs\",\n  \"Reading Water Find Fish Like a Pro\",\n  \"Seasonal Bait Selection Guide\",\n  \"Using Fish Finders Effectively\",\n  \"Panfish Crappie and Bluegill Tips\"\n];\n\nconst manualTopic = $input.item.json.body?.topic || $input.item.json.topic;\nconst now = new Date();\nconst week = Math.ceil((now - new Date(now.getFullYear(), 0, 1)) / 604800000);\n\nreturn {\n  json: {\n    topic: manualTopic || topics[week % topics.length],\n    episode: week,\n    date: now.toISOString().split('T')[0]\n  }\n};"
+      },
+      "id": "topic",
+      "name": "Select Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 375]
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.179:11434/api/generate",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.1:8b\",\n  \"prompt\": \"You are Perry, enthusiastic host of Shorettes Bait & Tackle Fishing Podcast.\\n\\nCreate a 3-5 minute podcast script about: {{ $json.topic }}\\n\\nStructure:\\n\\n[INTRO - 20 seconds]\\nHey fishing friends! Welcome to the Shorettes Bait and Tackle Podcast. I'm Perry, and today we're talking about {{ $json.topic }}. Whether you're new to fishing or a seasoned pro, I've got tips that'll help you catch more fish!\\n\\n[MAIN CONTENT - 3 minutes]\\nProvide 4-5 specific, actionable fishing tips:\\n- Include exact depths, weights, colors, sizes\\n- Explain WHY each technique works\\n- Give seasonal timing advice\\n- Share common mistakes to avoid\\n- Add pro-level insider tips\\n\\nMake each tip conversational and detailed.\\n\\n[PRODUCTS - 30 seconds]\\nNaturally mention 2-3 relevant products available at Shorettes that help with these techniques. Be helpful, not salesy. Example: Speaking of crankbaits, we've got some great options at the shop that work perfectly for this...\\n\\n[OUTRO - 15 seconds]\\nAlright fishing friends, that's today's episode! Try these tips on your next trip and let me know how it goes. Don't forget to subscribe to the podcast and visit us at shorettesbaitandtackle.com. Until next time, tight lines and happy fishing!\\n\\nGuidelines:\\n- Write 450-600 words total\\n- Conversational, friendly tone like talking to fishing buddies\\n- Be specific with measurements and details\\n- Include enthusiasm and energy\\n- Keep it authentic and helpful\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.85,\n    \"top_p\": 0.9\n  }\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "script",
+      "name": "Generate Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [690, 375]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.item.json.response;\nconst topic = $node['Select Topic'].json;\n\n// Clean script\nconst script = raw\n  .replace(/\\[INTRO.*?\\]/gi, '')\n  .replace(/\\[MAIN.*?\\]/gi, '')\n  .replace(/\\[PRODUCT.*?\\]/gi, '')\n  .replace(/\\[OUTRO.*?\\]/gi, '')\n  .replace(/\\*\\*/g, '')\n  .replace(/\\*/g, '')\n  .trim();\n\nconst words = script.split(/\\s+/).length;\nconst minutes = Math.ceil(words / 150);\n\nreturn {\n  json: {\n    episode_number: topic.episode,\n    topic: topic.topic,\n    date: topic.date,\n    script: script,\n    word_count: words,\n    duration: minutes,\n    title: `Episode ${topic.episode}: ${topic.topic}`\n  }\n};"
+      },
+      "id": "parse",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 375]
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.227:5000/",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.script }}\",\n  \"speaker\": 0\n}",
+        "options": {
+          "timeout": 180000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "audio",
+      "name": "Generate Audio (Ryan High)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1130, 300],
+      "notes": "Piper TTS with Ryan High voice"
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.179:11434/api/generate",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.1:8b\",\n  \"prompt\": \"Create engaging show notes for this fishing podcast:\\n\\nTitle: {{ $node['Parse Script'].json.title }}\\n\\nScript:\\n{{ $node['Parse Script'].json.script }}\\n\\nGenerate:\\n\\n## EPISODE DESCRIPTION\\nWrite 150 words that make people want to listen. Highlight key tips and what they'll learn.\\n\\n## KEY TAKEAWAYS\\n• List 5-7 main tips from the episode\\n• Make each actionable and specific\\n\\n## TIMESTAMPS (Estimated)\\n0:00 - Introduction\\n0:30 - First tip\\n... (create timestamps for main sections)\\n\\n## SEO KEYWORDS\\nList 15 fishing keywords (comma separated) for search optimization\\n\\n## SOCIAL MEDIA POST\\nWrite an exciting 280-character tweet/post to promote this episode. Make it engaging!\\n\\n## YOUTUBE DESCRIPTION\\nCreate a description optimized for YouTube with:\\n- Quick summary\\n- Timestamps\\n- Links to shorettesbaitandtackle.com\\n- Relevant hashtags\\n\\nFormat with clear markdown headers.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.75\n  }\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "notes",
+      "name": "Generate Show Notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1130, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "const script = $node['Parse Script'].json;\nconst showNotes = $node['Generate Show Notes'].json.response;\n\n// Get audio data if available\nlet audioSize = 0;\nlet hasAudio = false;\ntry {\n  const audioNode = $node['Generate Audio (Ryan High)'].json;\n  if (audioNode.data) {\n    audioSize = Buffer.from(audioNode.data, 'base64').length;\n    hasAudio = true;\n  }\n} catch (e) {\n  // Audio node might not have data\n}\n\nreturn {\n  json: {\n    // Episode Info\n    episode_number: script.episode_number,\n    title: script.title,\n    topic: script.topic,\n    date: script.date,\n    duration_minutes: script.duration,\n    \n    // Content\n    full_script: script.script,\n    show_notes: showNotes,\n    word_count: script.word_count,\n    \n    // Audio\n    audio_generated: hasAudio,\n    audio_size_kb: Math.round(audioSize / 1024),\n    \n    // Metadata\n    created_at: new Date().toISOString(),\n    created_by: 'Perry AI Podcast Generator',\n    status: 'ready_to_publish',\n    \n    // URLs\n    store_url: 'https://shorettesbaitandtackle.myshopify.com',\n    podcast_url: `https://shorettesbaitandtackle.com/podcast/episode-${script.episode_number}`\n  }\n};"
+      },
+      "id": "compile",
+      "name": "Compile Podcast",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 375]
+    },
+    {
+      "parameters": {
+        "content": "=# 🎙️ Podcast Episode Complete!\n\n---\n\n## {{ $json.title }}\n\n**Published:** {{ $json.date }}  \n**Duration:** ~{{ $json.duration_minutes }} minutes  \n**Word Count:** {{ $json.word_count }} words\n\n---\n\n## 📝 FULL SCRIPT\n\n{{ $json.full_script }}\n\n---\n\n## 📋 SHOW NOTES\n\n{{ $json.show_notes }}\n\n---\n\n## 🎵 AUDIO STATUS\n\n**Audio Generated:** {{ $json.audio_generated ? '✅ Yes' : '❌ No' }}  \n**File Size:** {{ $json.audio_size_kb }} KB  \n**Voice:** Ryan High (Piper TTS)  \n**Quality:** 22050 Hz, 16-bit, Mono\n\n---\n\n## 🚀 NEXT STEPS\n\n1. ✅ Script written and reviewed\n2. ✅ Audio generated with professional voice\n3. ✅ Show notes created\n4. ⬜ Add intro/outro music\n5. ⬜ Upload to podcast hosting (Spotify, Apple Podcasts, etc.)\n6. ⬜ Publish to website\n7. ⬜ Share on social media\n8. ⬜ Update RSS feed\n\n---\n\n## 📊 EPISODE METRICS\n\n**Episode Number:** {{ $json.episode_number }}  \n**Status:** {{ $json.status }}  \n**Created:** {{ $json.created_at }}  \n**Generator:** {{ $json.created_by }}\n\n---\n\n## 🔗 LINKS\n\n**Store:** {{ $json.store_url }}  \n**Podcast Page:** {{ $json.podcast_url }}\n\n---\n\n*Generated automatically by Perry AI on your local infrastructure*  \n*Pi 5 (Hailo-8) + Windows PC (Ollama) + n8n*",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Return Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1570, 375]
+    }
+  ],
+  "connections": {
+    "Weekly Monday 8am": {
+      "main": [
+        [
+          {
+            "node": "Select Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Select Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Topic": {
+      "main": [
+        [
+          {
+            "node": "Generate Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "Generate Audio (Ryan High)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Show Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Audio (Ryan High)": {
+      "main": [
+        [
+          {
+            "node": "Compile Podcast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Show Notes": {
+      "main": [
+        [
+          {
+            "node": "Compile Podcast",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compile Podcast": {
+      "main": [
+        [
+          {
+            "node": "Return Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

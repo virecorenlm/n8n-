@@ -1,0 +1,254 @@
+{
+  "name": "Marina - Social Media Content Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "marina-create",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "marina-social"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "product",
+        "operation": "get",
+        "productId": "={{ $json.body.product_id }}"
+      },
+      "id": "shopify-get-product",
+      "name": "Shopify - Get Product",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "shopifyOAuth2Api": {
+          "id": "1",
+          "name": "Shopify account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.xxx:5001/shopify-analyze",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"image_url\": \"{{ $json.images[0].src }}\",\n  \"product_title\": \"{{ $json.title }}\",\n  \"type\": \"social\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "moondream-vision",
+      "name": "Moondream - Analyze Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.xxx:11434/api/generate",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.1:8b\",\n  \"prompt\": \"You are Marina, the social media manager for Shorettes Bait & Tackle, a fishing tackle and gear shop.\\n\\nProduct: {{ $node['Shopify - Get Product'].json.title }}\\nPrice: ${{ $node['Shopify - Get Product'].json.variants[0].price }}\\nVendor: {{ $node['Shopify - Get Product'].json.vendor }}\\nVisual Analysis: {{ $json.description }}\\n\\nCreate engaging social media content for this fishing product:\\n\\n1. INSTAGRAM CAPTION (150 characters max, exciting and engaging)\\nInclude 10 relevant fishing hashtags\\n\\n2. FACEBOOK POST (200 characters, conversational and friendly)\\n\\n3. TIKTOK HOOK (Write ONLY the first 5 seconds - must grab attention immediately)\\n\\n4. PINTEREST DESCRIPTION (300 characters, SEO-focused with fishing keywords)\\n\\nFormat your response EXACTLY like this:\\n\\nINSTAGRAM:\\n[caption]\\n[hashtags]\\n\\nFACEBOOK:\\n[post]\\n\\nTIKTOK:\\n[5-second hook only]\\n\\nPINTEREST:\\n[description]\\n\\nMake it exciting! This is about FISHING - use energy and enthusiasm!\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.8\n  }\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "ollama-generate",
+      "name": "Ollama - Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse the AI-generated content into structured format\nconst response = $input.item.json.response;\n\n// Extract sections using regex\nconst instagramMatch = response.match(/INSTAGRAM:[\\s\\S]*?(?=FACEBOOK:|$)/);\nconst facebookMatch = response.match(/FACEBOOK:[\\s\\S]*?(?=TIKTOK:|$)/);\nconst tiktokMatch = response.match(/TIKTOK:[\\s\\S]*?(?=PINTEREST:|$)/);\nconst pinterestMatch = response.match(/PINTEREST:[\\s\\S]*?$/);\n\n// Clean up extracted content\nfunction cleanSection(text) {\n  return text ? text.replace(/^[A-Z]+:\\s*/g, '').trim() : '';\n}\n\nconst instagram = cleanSection(instagramMatch ? instagramMatch[0] : '');\nconst facebook = cleanSection(facebookMatch ? facebookMatch[0] : '');\nconst tiktok = cleanSection(tiktokMatch ? tiktokMatch[0] : '');\nconst pinterest = cleanSection(pinterestMatch ? pinterestMatch[0] : '');\n\n// Get product data\nconst product = $node['Shopify - Get Product'].json;\nconst vision = $node['Moondream - Analyze Image'].json;\n\nreturn {\n  json: {\n    product_id: product.id,\n    product_title: product.title,\n    product_price: product.variants[0].price,\n    product_url: `https://shorettesbaitandtackle.myshopify.com/products/${product.handle}`,\n    image_url: product.images[0].src,\n    vision_analysis: vision.description,\n    \n    social_content: {\n      instagram: {\n        caption: instagram,\n        character_count: instagram.length\n      },\n      facebook: {\n        post: facebook,\n        character_count: facebook.length\n      },\n      tiktok: {\n        hook: tiktok,\n        full_script: tiktok  // Can expand later\n      },\n      pinterest: {\n        description: pinterest,\n        character_count: pinterest.length\n      }\n    },\n    \n    created_at: new Date().toISOString(),\n    created_by: 'Marina AI'\n  }\n};"
+      },
+      "id": "function-parse",
+      "name": "Parse Content",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://192.168.0.xxx:5000/api/tts",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.social_content.tiktok.hook }}\",\n  \"voice\": \"ryan_high\"\n}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "piper-tts",
+      "name": "Piper - Generate Voice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "fileContent": "={{ $json.data }}",
+        "fileName": "=tiktok_voiceover_{{ $node['Parse Content'].json.product_id }}.wav",
+        "options": {}
+      },
+      "id": "save-audio",
+      "name": "Save Audio File",
+      "type": "n8n-nodes-base.filesWrite",
+      "typeVersion": 1,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "content": "=# Social Media Content Generated! 🎣\n\n## Product: {{ $node['Parse Content'].json.product_title }}\n**Price:** ${{ $node['Parse Content'].json.product_price }}\n**URL:** {{ $node['Parse Content'].json.product_url }}\n\n---\n\n### 📸 INSTAGRAM\n{{ $node['Parse Content'].json.social_content.instagram.caption }}\n\n**Length:** {{ $node['Parse Content'].json.social_content.instagram.character_count }} characters\n\n---\n\n### 👍 FACEBOOK  \n{{ $node['Parse Content'].json.social_content.facebook.post }}\n\n**Length:** {{ $node['Parse Content'].json.social_content.facebook.character_count }} characters\n\n---\n\n### 🎵 TIKTOK HOOK (First 5 seconds)\n{{ $node['Parse Content'].json.social_content.tiktok.hook }}\n\n**Voice-over:** Generated with Ryan High voice\n**Audio File:** Available for download\n\n---\n\n### 📌 PINTEREST\n{{ $node['Parse Content'].json.social_content.pinterest.description }}\n\n**Length:** {{ $node['Parse Content'].json.social_content.pinterest.character_count }} characters\n\n---\n\n### 🤖 AI Analysis\n**Vision Description:** {{ $node['Parse Content'].json.vision_analysis }}\n\n**Generated by Marina AI** | {{ $node['Parse Content'].json.created_at }}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Return Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Social Media Content Log"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.created_at }}",
+            "Product ID": "={{ $json.product_id }}",
+            "Product Title": "={{ $json.product_title }}",
+            "Instagram": "={{ $json.social_content.instagram.caption }}",
+            "Facebook": "={{ $json.social_content.facebook.post }}",
+            "TikTok": "={{ $json.social_content.tiktok.hook }}",
+            "Pinterest": "={{ $json.social_content.pinterest.description }}",
+            "Image URL": "={{ $json.image_url }}",
+            "Product URL": "={{ $json.product_url }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "google-sheets-log",
+      "name": "Log to Google Sheets (Optional)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1560, 400],
+      "disabled": true,
+      "notes": "Enable this if you want to log all generated content to Google Sheets"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Shopify - Get Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify - Get Product": {
+      "main": [
+        [
+          {
+            "node": "Moondream - Analyze Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Moondream - Analyze Image": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Generate Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Generate Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Content": {
+      "main": [
+        [
+          {
+            "node": "Piper - Generate Voice",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Return Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Piper - Generate Voice": {
+      "main": [
+        [
+          {
+            "node": "Save Audio File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Results": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

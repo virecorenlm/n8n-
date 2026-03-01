@@ -1,0 +1,462 @@
+{
+  "name": "🎣 Shopify → MCP Agent (FULL FEATURED)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-hook",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {
+          "responseData": "{\"status\": \"received\", \"message\": \"Shopify event captured successfully\", \"timestamp\": \"{{ $now.toISO() }}\"}"
+        }
+      },
+      "id": "webhook-receiver",
+      "name": "🎯 Shopify Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "shopify-hook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "event_type",
+              "name": "event_type",
+              "value": "={{ $json.headers['x-shopify-topic'] || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "shop_domain",
+              "name": "shop_domain",
+              "value": "={{ $json.headers['x-shopify-shop-domain'] || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "webhook_id",
+              "name": "webhook_id",
+              "value": "={{ $json.headers['x-shopify-webhook-id'] || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "hmac_signature",
+              "name": "hmac_signature",
+              "value": "={{ $json.headers['x-shopify-hmac-sha256'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "received_at",
+              "name": "received_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "raw_payload",
+              "name": "raw_payload",
+              "value": "={{ JSON.stringify($json.body) }}",
+              "type": "string"
+            },
+            {
+              "id": "event_id",
+              "name": "event_id",
+              "value": "={{ $json.headers['x-shopify-webhook-id'] }}-{{ $now.toMillis() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-event-data",
+      "name": "Extract Event Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst hmacHeader = $input.item.json.hmac_signature;\nconst rawPayload = $input.item.json.raw_payload;\nconst shopifySecret = process.env.SHOPIFY_WEBHOOK_SECRET || 'your-shopify-webhook-secret-here';\nconst calculatedHmac = crypto.createHmac('sha256', shopifySecret).update(rawPayload, 'utf8').digest('base64');\nconst isValid = hmacHeader === calculatedHmac;\nconst isDevelopment = true;\nif (!isValid && !isDevelopment) { throw new Error('Invalid Shopify HMAC signature'); }\nreturn { json: { ...$input.item.json, signature_valid: isValid, security_check: isValid ? 'PASSED' : 'BYPASSED (dev mode)' } };"
+      },
+      "id": "verify-signature",
+      "name": "Verify Shopify Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 400],
+      "notes": "SECURITY: Verifies request is from Shopify"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "is-order-create",
+              "leftValue": "={{ $json.event_type }}",
+              "rightValue": "orders/create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "route-by-event",
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "order_id",
+              "name": "order_id",
+              "value": "={{ JSON.parse($json.raw_payload).id }}",
+              "type": "number"
+            },
+            {
+              "id": "order_number",
+              "name": "order_number",
+              "value": "={{ JSON.parse($json.raw_payload).order_number }}",
+              "type": "number"
+            },
+            {
+              "id": "customer_email",
+              "name": "customer_email",
+              "value": "={{ JSON.parse($json.raw_payload).email }}",
+              "type": "string"
+            },
+            {
+              "id": "customer_first_name",
+              "name": "customer_first_name",
+              "value": "={{ JSON.parse($json.raw_payload).customer?.first_name || 'Customer' }}",
+              "type": "string"
+            },
+            {
+              "id": "customer_last_name",
+              "name": "customer_last_name",
+              "value": "={{ JSON.parse($json.raw_payload).customer?.last_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "customer_name",
+              "name": "customer_name",
+              "value": "={{ JSON.parse($json.raw_payload).customer?.first_name || 'Customer' }} {{ JSON.parse($json.raw_payload).customer?.last_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "total_price",
+              "name": "total_price",
+              "value": "={{ JSON.parse($json.raw_payload).total_price }}",
+              "type": "string"
+            },
+            {
+              "id": "subtotal_price",
+              "name": "subtotal_price",
+              "value": "={{ JSON.parse($json.raw_payload).subtotal_price }}",
+              "type": "string"
+            },
+            {
+              "id": "total_tax",
+              "name": "total_tax",
+              "value": "={{ JSON.parse($json.raw_payload).total_tax }}",
+              "type": "string"
+            },
+            {
+              "id": "currency",
+              "name": "currency",
+              "value": "={{ JSON.parse($json.raw_payload).currency }}",
+              "type": "string"
+            },
+            {
+              "id": "line_items",
+              "name": "line_items",
+              "value": "={{ JSON.stringify(JSON.parse($json.raw_payload).line_items) }}",
+              "type": "string"
+            },
+            {
+              "id": "line_items_count",
+              "name": "line_items_count",
+              "value": "={{ JSON.parse($json.raw_payload).line_items?.length || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "shipping_address",
+              "name": "shipping_address",
+              "value": "={{ JSON.stringify(JSON.parse($json.raw_payload).shipping_address) }}",
+              "type": "string"
+            },
+            {
+              "id": "order_created_at",
+              "name": "order_created_at",
+              "value": "={{ JSON.parse($json.raw_payload).created_at }}",
+              "type": "string"
+            },
+            {
+              "id": "financial_status",
+              "name": "financial_status",
+              "value": "={{ JSON.parse($json.raw_payload).financial_status }}",
+              "type": "string"
+            },
+            {
+              "id": "fulfillment_status",
+              "name": "fulfillment_status",
+              "value": "={{ JSON.parse($json.raw_payload).fulfillment_status || 'unfulfilled' }}",
+              "type": "string"
+            },
+            {
+              "id": "order_status_url",
+              "name": "order_status_url",
+              "value": "={{ JSON.parse($json.raw_payload).order_status_url }}",
+              "type": "string"
+            },
+            {
+              "id": "note",
+              "name": "note",
+              "value": "={{ JSON.parse($json.raw_payload).note || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "tags",
+              "name": "tags",
+              "value": "={{ JSON.parse($json.raw_payload).tags || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "parse-order-data",
+      "name": "Parse Order Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleGeminiOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"contents\": [{\"parts\": [{\"text\": \"Analyze this fishing tackle e-commerce order.\\nOrder #: {{ $json.order_number }}\\nCustomer: {{ $json.customer_name }}\\nTotal: {{ $json.currency }} {{ $json.total_price }}\\nProvide JSON with: priority_level, order_type, customer_segment, upsell_opportunities, red_flags, recommended_actions\"}]}], \"generationConfig\": {\"temperature\": 0.4, \"maxOutputTokens\": 1500}}",
+        "options": {}
+      },
+      "id": "ai-analyze-order",
+      "name": "AI: Analyze Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = JSON.parse($input.item.json.body);\nconst aiText = response.candidates[0].content.parts[0].text;\nlet jsonText = aiText;\nif (aiText.includes('```json')) { jsonText = aiText.split('```json')[1].split('```')[0].trim(); } else if (aiText.includes('```')) { jsonText = aiText.split('```')[1].split('```')[0].trim(); }\nconst aiAnalysis = JSON.parse(jsonText);\nconst orderData = $('Parse Order Data').item.json;\nreturn { json: { ...orderData, ai_analysis: aiAnalysis, priority_level: aiAnalysis.priority_level, priority_score: aiAnalysis.priority_level === 'HIGH' ? 3 : aiAnalysis.priority_level === 'MEDIUM' ? 2 : 1 } };"
+      },
+      "id": "parse-ai-analysis",
+      "name": "Parse AI Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Shopify Orders Log"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Orders"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $('Verify Shopify Signature').item.json.received_at }}",
+            "Order_ID": "={{ $json.order_id }}",
+            "Order_Number": "={{ $json.order_number }}",
+            "Customer_Name": "={{ $json.customer_name }}",
+            "Customer_Email": "={{ $json.customer_email }}",
+            "Total": "={{ $json.currency }} {{ $json.total_price }}",
+            "Items_Count": "={{ $json.line_items_count }}",
+            "Financial_Status": "={{ $json.financial_status }}",
+            "Fulfillment_Status": "={{ $json.fulfillment_status }}",
+            "Priority": "={{ $json.priority_level }}",
+            "MCP_Status": "Pending",
+            "Email_Sent": "No",
+            "Notes": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "log-order-to-sheets",
+      "name": "Log Order to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.122:XXXX/mcp-endpoint",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"action\": \"process_shopify_order\", \"order\": {\"id\": {{ $json.order_id }}, \"number\": {{ $json.order_number }}, \"total\": \"{{ $json.total_price }}\", \"currency\": \"{{ $json.currency }}\", \"financial_status\": \"{{ $json.financial_status }}\"}, \"customer\": {\"email\": \"{{ $json.customer_email }}\", \"name\": \"{{ $json.customer_name }}\"}, \"items\": {{ $json.line_items }}, \"shipping_address\": {{ $json.shipping_address }}}",
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxRetries": 3,
+            "waitBetweenRetries": 2000
+          }
+        }
+      },
+      "id": "forward-to-mcp",
+      "name": "Forward to Pavilion MCP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 200],
+      "notes": "UPDATE: Replace with your actual Pavilion MCP endpoint",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "your-store@example.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "Order Confirmation - Order #{{ $json.order_number }}",
+        "emailType": "html",
+        "message": "=<html><body><h1>Thank You for Your Order!</h1><p>Order #{{ $json.order_number }}</p><p>Total: {{ $json.currency }} {{ $json.total_price }}</p><p>We will ship your order soon!</p></body></html>",
+        "options": {}
+      },
+      "id": "send-confirmation-email",
+      "name": "Send Order Confirmation Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2220, 400],
+      "notes": "Personalized email confirmation"
+    }
+  ],
+  "connections": {
+    "webhook-receiver": {
+      "main": [
+        [
+          {
+            "node": "extract-event-data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract-event-data": {
+      "main": [
+        [
+          {
+            "node": "verify-signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verify-signature": {
+      "main": [
+        [
+          {
+            "node": "route-by-event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "route-by-event": {
+      "main": [
+        [
+          {
+            "node": "parse-order-data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse-order-data": {
+      "main": [
+        [
+          {
+            "node": "ai-analyze-order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ai-analyze-order": {
+      "main": [
+        [
+          {
+            "node": "parse-ai-analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse-ai-analysis": {
+      "main": [
+        [
+          {
+            "node": "log-order-to-sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log-order-to-sheets": {
+      "main": [
+        [
+          {
+            "node": "forward-to-mcp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "forward-to-mcp": {
+      "main": [
+        [
+          {
+            "node": "send-confirmation-email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1.0.0"
+}

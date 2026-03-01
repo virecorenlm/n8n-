@@ -1,0 +1,68 @@
+{
+  "name": "AI‑Powered Facebook Ads for Shorette's Bait & Tackle",
+  "nodes": [
+    {
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": { "rule": { "interval": "day" } }
+    },
+    {
+      "name": "Get Product Data",
+      "type": "n8n-nodes-base.httpRequest", // or "n8n-nodes-base.mongoDb" / "n8n-nodes-base.postgres"
+      "position": [450, 300],
+      "parameters": {
+        "url": "https://shorettesbaitandtackle.com/api/products", // Replace with your actual endpoint or query
+        "authentication": "genericCredentialType"
+      }
+    },
+    {
+      "name": "Generate Ad Copy with AI",
+      "type": "n8n-nodes-langchain.lmchatdeepseek", // Can switch to "lmchatgemini" or "lmollama"
+      "position": [650, 300],
+      "parameters": {
+        "model": "deepseek-chat",
+        "prompt": "Write a engaging Facebook post for a fishing product: {{ $json.product }}"
+      }
+    },
+    {
+      "name": "Generate Influencer Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 500],
+      "parameters": {
+        "url": "http://localhost:8188/predict", // Example ComfyUI API endpoint
+        "method": "POST",
+        "body": { "prompt": "A person wearing fishing apparel holding {{ $json.product }}" }
+      }
+    },
+    {
+      "name": "Post to Facebook",
+      "type": "n8n-nodes-base.facebookgraphapi",
+      "position": [850, 300],
+      "parameters": {
+        "operation": "post",
+        "node": "me",
+        "edge": "feed",
+        "message": "{{ $json.generated_text }}",
+        "binaryFile": "{{ $json.generated_image }}"
+      }
+    },
+    {
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.postgres",
+      "position": [1050, 300],
+      "parameters": {
+        "operation": "insert",
+        "table": "generated_posts",
+        "columns": "product, post_text, image_url, posted_at"
+      }
+    }
+  ],
+  "connections": {
+    "Daily Trigger": { "main": [[{ "node": "Get Product Data", "type": "main" }]] },
+    "Get Product Data": { "main": [[{ "node": "Generate Ad Copy with AI", "type": "main" }]] },
+    "Generate Ad Copy with AI": { "main": [[{ "node": "Post to Facebook", "type": "main" }]] },
+    "Generate Influencer Image": { "main": [[{ "node": "Post to Facebook", "type": "main" }]] },
+    "Post to Facebook": { "main": [[{ "node": "Log to Database", "type": "main" }]] }
+  }
+}

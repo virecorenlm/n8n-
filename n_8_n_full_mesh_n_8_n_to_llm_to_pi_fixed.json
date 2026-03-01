@@ -1,0 +1,190 @@
+{
+  "name": "EchoUnit - n8n ⇄ LLM ⇄ Pi Full Mesh",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "webhook/echo-mesh",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "action",
+              "value": "={{$json[\"body\"].action || $json[\"query\"].action || 'process'}}"
+            },
+            {
+              "name": "input_text",
+              "value": "={{$json[\"body\"].text || $json[\"query\"].text || ''}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Set Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$json[\"llm_url\"] || 'http://M01:8000/api/v1/generate'}}",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={\"input\": $json.input_text, \"context\": {\"source\": \"n8n-echo-mesh\"}, \"model_preferences\": {\"fallbacks\": [\"openai\", \"together\"]}}"
+      },
+      "name": "Call LLM (M01)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [840, 180]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$json[\"pi_url\"] || 'http://192.168.0.xxx:5000/sensory'}}",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={\"type\": \"request_context\", \"payload\": {\"text\": $json.input_text, \"trigger\": $json.action}}"
+      },
+      "name": "Call Pi Sense (Pi5)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [840, 420]
+    },
+    {
+      "parameters": {
+        "resource": "merge",
+        "mode": "passThrough",
+        "propertyName": "merged"
+      },
+      "name": "Merge Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 1,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$json[\"pi_tts_url\"] || 'http://192.168.0.xxx:5000/tts'}}",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\"voice\": \"piper_default\", \"text\": $json.merged[0].body.generated_text || $json.merged[0].body.text || $json.merged[1].body.note || '...'}"
+      },
+      "name": "Send to Piper (TTS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1420, 300]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{json: {status: 'ok', llm_response: $items('Call LLM (M01)')[0].json || {}, pi_response: $items('Call Pi Sense (Pi5)')[0].json || {}, tts_job: $items('Send to Piper (TTS)')[0].json || {}}}];"
+      },
+      "name": "Build Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Payload": {
+      "main": [
+        [
+          {
+            "node": "Call LLM (M01)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call Pi Sense (Pi5)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call LLM (M01)": {
+      "main": [
+        [
+          {
+            "node": "Merge Responses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Pi Sense (Pi5)": {
+      "main": [
+        [
+          {
+            "node": "Merge Responses",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Responses": {
+      "main": [
+        [
+          {
+            "node": "Send to Piper (TTS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Piper (TTS)": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1.0.0"
+}

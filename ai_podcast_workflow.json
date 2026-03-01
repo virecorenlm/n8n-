@@ -1,0 +1,356 @@
+{
+  "name": "AI Tech Podcast Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 2
+            }
+          ]
+        }
+      },
+      "name": "Bi-Weekly Podcast Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Generate new podcast episodes automatically"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama2"
+            },
+            {
+              "name": "prompt",
+              "value": "You are a tech podcast script writer. Generate a 10-15 minute podcast episode script about AI and technology. Return ONLY valid JSON:\n\n{\n  \"title\": \"Episode title\",\n  \"episode_number\": \"auto\",\n  \"intro\": \"Welcome hook and episode overview (30 seconds)\",\n  \"segments\": [\n    {\n      \"title\": \"Segment name\",\n      \"content\": \"Full narration for this segment (2-3 minutes)\",\n      \"duration_estimate\": \"2-3 min\"\n    }\n  ],\n  \"outro\": \"Closing remarks and call to action (30 seconds)\",\n  \"keywords\": [\"AI\", \"tech\", \"innovation\"],\n  \"description\": \"Episode description for show notes\"\n}\n\nChoose from these topics: AI breakthroughs, machine learning basics, tech industry news, developer tools, automation, robotics, future of work, ethical AI, open source projects, or tech entrepreneurship. Make it conversational, informative, and engaging."
+            },
+            {
+              "name": "stream",
+              "value": false
+            }
+          ]
+        }
+      },
+      "name": "Generate Podcast Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Ollama response\nconst response = $input.first().json;\nlet scriptData;\n\ntry {\n  const rawText = response.response || JSON.stringify(response);\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);\n  \n  if (jsonMatch) {\n    scriptData = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (error) {\n  // Fallback episode\n  scriptData = {\n    title: \"The Rise of Local AI Models\",\n    episode_number: \"auto\",\n    intro: \"Welcome back to AI Tech Talk! Today we're diving into the exciting world of local AI models and why they're changing everything.\",\n    segments: [\n      {\n        title: \"What Are Local AI Models?\",\n        content: \"Local AI models are artificial intelligence systems that run entirely on your own hardware, without needing cloud services. Think Ollama, Llama, and other open-source models you can run on your laptop or even a Raspberry Pi. This shift represents a fundamental change in how we interact with AI.\",\n        duration_estimate: \"2 min\"\n      },\n      {\n        title: \"Privacy Benefits\",\n        content: \"The biggest advantage? Privacy. Your data never leaves your machine. No cloud providers analyzing your prompts, no data breaches to worry about. For businesses handling sensitive information, this is revolutionary. You maintain complete control over your AI interactions.\",\n        duration_estimate: \"2 min\"\n      },\n      {\n        title: \"Cost Savings\",\n        content: \"Running local models eliminates ongoing API costs. After the initial hardware investment, your AI usage is essentially free. For developers building AI-powered apps, this changes the entire economics of AI deployment.\",\n        duration_estimate: \"2 min\"\n      }\n    ],\n    outro: \"That's it for today's episode! If you're excited about local AI, make sure to subscribe and join us next time as we explore AI automation tools.\",\n    keywords: [\"AI\", \"local models\", \"privacy\", \"ollama\"],\n    description: \"Exploring the revolution of local AI models and why running AI on your own hardware is changing the game.\"\n  };\n}\n\n// Add episode number based on execution count\nconst executionId = $execution.id || 1;\nif (scriptData.episode_number === 'auto') {\n  scriptData.episode_number = `EP${String(executionId).padStart(3, '0')}`;\n}\n\nreturn { json: scriptData };"
+      },
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all script segments into full narration\nconst scriptData = $input.first().json;\n\nconst fullScript = [\n  scriptData.intro,\n  ...scriptData.segments.map(seg => seg.content),\n  scriptData.outro\n].join('\\n\\n');\n\nreturn {\n  json: {\n    ...scriptData,\n    fullScript: fullScript\n  }\n};"
+      },
+      "name": "Build Full Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "host": "your-pi5-ip",
+        "user": "poe",
+        "command": "=cd ~/piper1-gpl/script && echo \"{{ $json.fullScript }}\" | ./run --model en_US-ryan-high --output_file /tmp/podcast_{{ $json.episode_number }}.wav && base64 /tmp/podcast_{{ $json.episode_number }}.wav"
+      },
+      "name": "Generate Voiceover (Piper)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert base64 to binary audio\nconst base64Audio = $input.first().json.stdout.trim();\nconst scriptData = $input.first().json;\n\nreturn {\n  json: scriptData,\n  binary: {\n    audio: {\n      data: base64Audio,\n      mimeType: 'audio/wav',\n      fileName: `${scriptData.episode_number}_${scriptData.title.replace(/\\s+/g, '_')}.wav`,\n      fileExtension: 'wav'\n    }\n  }\n};"
+      },
+      "name": "Convert Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama2"
+            },
+            {
+              "name": "prompt",
+              "value": "=Create a detailed visual description for a podcast cover image. The podcast is titled \"{{ $json.title }}\". Topic: {{ $json.description }}. Describe an abstract, tech-themed image with AI/circuit board aesthetics, blue and purple gradients, futuristic style. Return only the image description, no JSON."
+            },
+            {
+              "name": "stream",
+              "value": false
+            }
+          ]
+        }
+      },
+      "name": "Generate Cover Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 500]
+    },
+    {
+      "parameters": {
+        "command": "=#!/bin/bash\n# Generate podcast cover image using ImageMagick\n\nEPISODE=\"{{ $('Parse Script').item.json.episode_number }}\"\nTITLE=\"{{ $('Parse Script').item.json.title }}\"\nOUTPUT=\"/tmp/cover_${EPISODE}.png\"\n\n# Create abstract tech-themed cover\nconvert -size 1400x1400 \\\n  gradient:\"#1a1a2e\"-\"#16213e\" \\\n  \\( +clone -blur 0x50 \\) \\\n  -compose screen -composite \\\n  -fill \"#00d4ff\" -font Arial-Bold -pointsize 80 \\\n  -gravity north -annotate +0+200 \"AI TECH TALK\" \\\n  -fill white -pointsize 50 \\\n  -gravity center -annotate +0+0 \"${EPISODE}\" \\\n  -fill \"#e94560\" -pointsize 40 \\\n  -gravity south -annotate +0+200 \"${TITLE:0:40}...\" \\\n  \"$OUTPUT\"\n\necho \"$OUTPUT\""
+      },
+      "name": "Create Cover Art",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1250, 500]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.stdout.trim() }}",
+        "options": {}
+      },
+      "name": "Read Cover Image",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1450, 500]
+    },
+    {
+      "parameters": {
+        "command": "=#!/bin/bash\nset -e\n\nEPISODE=\"{{ $json.episode_number }}\"\nTITLE=\"{{ $json.title }}\"\nAUDIO_FILE=\"/tmp/podcast_${EPISODE}.wav\"\nCOVER_FILE=\"/tmp/cover_${EPISODE}.png\"\nOUTPUT_FILE=\"/tmp/final_${EPISODE}.mp4\"\n\n# Save audio from binary\necho \"{{ $binary.audio.data }}\" | base64 -d > \"$AUDIO_FILE\"\n\n# Create static video with cover image and audio\n# Perfect for YouTube or podcast platforms\nffmpeg -y \\\n  -loop 1 -i \"$COVER_FILE\" \\\n  -i \"$AUDIO_FILE\" \\\n  -c:v libx264 -tune stillimage -pix_fmt yuv420p \\\n  -c:a aac -b:a 192k \\\n  -shortest \\\n  -movflags +faststart \\\n  \"$OUTPUT_FILE\"\n\necho \"$OUTPUT_FILE\""
+      },
+      "name": "Create Podcast Video",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.stdout.trim() }}",
+        "options": {}
+      },
+      "name": "Read Final Video",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos",
+        "authentication": "oAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,status"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "video",
+              "value": "={{ $binary.data }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ JSON.stringify({\n  title: $('Parse Script').item.json.episode_number + ': ' + $('Parse Script').item.json.title,\n  description: $('Parse Script').item.json.description + '\\n\\n' + $('Parse Script').item.json.keywords.map(k => '#' + k).join(' '),\n  tags: $('Parse Script').item.json.keywords,\n  categoryId: '28'\n}) }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ JSON.stringify({\n  privacyStatus: 'public',\n  selfDeclaredMadeForKids: false\n}) }}"
+            }
+          ]
+        }
+      },
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate RSS feed entry for podcast platforms\nconst scriptData = $('Parse Script').item.json;\nconst audioUrl = \"https://your-domain.com/podcasts/\" + scriptData.episode_number + \".mp3\";\n\nconst rssEntry = `\n<item>\n  <title>${scriptData.title}</title>\n  <description>${scriptData.description}</description>\n  <pubDate>${new Date().toUTCString()}</pubDate>\n  <enclosure url=\"${audioUrl}\" type=\"audio/mpeg\" />\n  <guid>${scriptData.episode_number}</guid>\n  <itunes:episode>${scriptData.episode_number.replace('EP', '')}</itunes:episode>\n  <itunes:title>${scriptData.title}</itunes:title>\n  <itunes:summary>${scriptData.description}</itunes:summary>\n</item>\n`;\n\nreturn {\n  json: {\n    rssEntry,\n    episodeData: scriptData\n  }\n};"
+      },
+      "name": "Generate RSS Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 500]
+    },
+    {
+      "parameters": {
+        "command": "=#!/bin/bash\n# Convert WAV to MP3 for podcast distribution\n\nAUDIO_FILE=\"/tmp/podcast_{{ $('Parse Script').item.json.episode_number }}.wav\"\nMP3_FILE=\"/tmp/podcast_{{ $('Parse Script').item.json.episode_number }}.mp3\"\n\necho \"{{ $('Convert Audio').item.binary.audio.data }}\" | base64 -d > \"$AUDIO_FILE\"\n\nffmpeg -y -i \"$AUDIO_FILE\" \\\n  -codec:a libmp3lame \\\n  -b:a 192k \\\n  -ar 44100 \\\n  -ac 2 \\\n  \"$MP3_FILE\"\n\necho \"$MP3_FILE\""
+      },
+      "name": "Convert to MP3",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1650, 500]
+    }
+  ],
+  "connections": {
+    "Bi-Weekly Podcast Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Podcast Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Podcast Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "Build Full Script",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Cover Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Full Script": {
+      "main": [
+        [
+          {
+            "node": "Generate Voiceover (Piper)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voiceover (Piper)": {
+      "main": [
+        [
+          {
+            "node": "Convert Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Audio": {
+      "main": [
+        [
+          {
+            "node": "Create Podcast Video",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Convert to MP3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Cover Prompt": {
+      "main": [
+        [
+          {
+            "node": "Create Cover Art",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Cover Art": {
+      "main": [
+        [
+          {
+            "node": "Read Cover Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Cover Image": {
+      "main": [
+        [
+          {
+            "node": "Create Podcast Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Podcast Video": {
+      "main": [
+        [
+          {
+            "node": "Read Final Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Final Video": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to MP3": {
+      "main": [
+        [
+          {
+            "node": "Generate RSS Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

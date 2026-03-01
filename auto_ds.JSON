@@ -1,0 +1,313 @@
+{
+  "name": "Shopify → Carrier Rates → Update Order (Auto-DS style)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-order-created",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook (Shopify Order Created)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "get",
+        "id": "={{$json[\"id\"] || $json[\"order_id\"] || $json[\"data\"]?.order?.id}}",
+        "options": {}
+      },
+      "name": "Shopify Get Order",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 1,
+      "position": [
+        520,
+        300
+      ],
+      "credentials": {
+        "shopifyApi": {
+          "id": "<<SHOPIFY_CREDENTIAL_ID>>",
+          "name": "Shopify Admin API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Normalize order and build carrier rate request input */\nconst order = items[0].json;\nconst shippingAddress = order.shipping_address || order.shipping || order.address || {};\nconst line_items = order.line_items || [];\n\n// Build simple parcel / shipment object; adapt to carrier API needs\nconst shipment = {\n  to_address: {\n    name: shippingAddress.name || `${order.customer?.first_name || ''} ${order.customer?.last_name || ''}`,\n    street1: shippingAddress.address1 || shippingAddress.address_1 || '',\n    city: shippingAddress.city || '',\n    state: shippingAddress.province || shippingAddress.state || '',\n    postal_code: shippingAddress.zip || shippingAddress.zipcode || '',\n    country: shippingAddress.country_code || shippingAddress.country || 'US'\n  },\n  parcels: [\n    {\n      length: 10,\n      width: 8,\n      height: 4,\n      weight: Math.max(1, Math.round((line_items.reduce((s,i)=>s + (i.grams || (i.weight || 0)),0)/1000)))\n    }\n  ],\n  order_id: order.id\n};\n\nreturn [{ json: { order, shipment } }];"
+      },
+      "name": "Build Carrier Request",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "={{$json[\"shipmentCarrierEndpoint\"] || \"https://api.example-carrier.com/v1/rates\"}}",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "={ \"shipment\": $json[\"shipment\"] }",
+        "headerParametersJson": "={ \"Authorization\": \"Bearer {{ $credentials[\"Carrier API\"] ? $credentials[\"Carrier API\"].apiKey : '' }}\", \"Content-Type\": \"application/json\" }"
+      },
+      "name": "Carrier Rates HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1020,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "<<CARRIER_CREDENTIAL_ID>>",
+          "name": "Carrier API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "string": [
+            {
+              "value1": "={{!!$json[\"rates\"] && $json[\"rates\"].length > 0}}",
+              "operation": "notEmpty"
+            }
+          ],
+          "number": []
+        }
+      },
+      "name": "IF - Carrier Returned Rates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format best rate into Shopify order note_attributes or metadata\nconst carrierResponse = items[0].json;\nconst rates = carrierResponse.rates || carrierResponse.data || carrierResponse;\nlet chosen = null;\nif(Array.isArray(rates) && rates.length) {\n  // choose cheapest as default\n  chosen = rates.reduce((a,b)=> a.cost <= b.cost ? a : b );\n}\n\nif(!chosen) {\n  return [{ json: { success: false, reason: 'No rates returned' } }];\n}\n\nreturn [{ json: { success: true, chosenRate: chosen } }];"
+      },
+      "name": "Pick Best Rate",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "update",
+        "id": "={{$json[\"order\"]?.id || $json[\"order_id\"]}}",
+        "updateFields": {
+          "note_attributes": "={{[{\"name\":\"selected_shipping_provider\",\"value\":$json[\"chosenRate\"].service || $json[\"chosenRate\"].service_name||$json[\"chosenRate\"].provider},{\"name\":\"selected_shipping_cost\",\"value\":$json[\"chosenRate\"].cost||$json[\"chosenRate\"].amount} ]}}"
+        }
+      },
+      "name": "Shopify Update Order (store chosen rate)",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        220
+      ],
+      "credentials": {
+        "shopifyApi": {
+          "id": "<<SHOPIFY_CREDENTIAL_ID>>",
+          "name": "Shopify Admin API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "order",
+        "operation": "update",
+        "id": "={{$json[\"order\"]?.id || $json[\"order_id\"]}}",
+        "updateFields": {
+          "note_attributes": "={{[{\"name\":\"shipping_fallback\",\"value\":\"flat_rate_used\"}]}}"
+        }
+      },
+      "name": "Shopify Update Order (fallback note)",
+      "type": "n8n-nodes-base.shopify",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        380
+      ],
+      "credentials": {
+        "shopifyApi": {
+          "id": "<<SHOPIFY_CREDENTIAL_ID>>",
+          "name": "Shopify Admin API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{ json: { status: 'ok' } }];"
+      },
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.noop",
+      "typeVersion": 1,
+      "position": [
+        2040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "setAllData": false,
+        "values": {
+          "string": [
+            {
+              "name": "fallback_rate",
+              "value": "5.99"
+            },
+            {
+              "name": "fallback_service_name",
+              "value": "Flat Rate (Auto-DS fallback)"
+            }
+          ]
+        }
+      },
+      "name": "Set Fallback Rate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build order update payload to add fallback shipping as note_attribute\nconst order = items[0].json.order || items[0].json;\nconst fallback_rate = items[1].json.fallback_rate || '5.99';\nreturn [{ json: { order, fallback_rate } }];"
+      },
+      "name": "Prepare Fallback Update",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (Shopify Order Created)": {
+      "main": [
+        [
+          {
+            "node": "Shopify Get Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Get Order": {
+      "main": [
+        [
+          {
+            "node": "Build Carrier Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Carrier Request": {
+      "main": [
+        [
+          {
+            "node": "Carrier Rates HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carrier Rates HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Carrier Returned Rates?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Carrier Returned Rates?": {
+      "main": [
+        [
+          {
+            "node": "Pick Best Rate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Fallback Rate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Best Rate": {
+      "main": [
+        [
+          {
+            "node": "Shopify Update Order (store chosen rate)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Fallback Rate": {
+      "main": [
+        [
+          {
+            "node": "Prepare Fallback Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Fallback Update": {
+      "main": [
+        [
+          {
+            "node": "Shopify Update Order (fallback note)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}

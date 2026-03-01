@@ -1,0 +1,245 @@
+{
+  "name": "Automated Fishing YouTube Shorts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:11434/api/generate",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama2"
+            },
+            {
+              "name": "prompt",
+              "value": "Generate a 60-second fishing YouTube Short script. Return ONLY valid JSON with this exact structure: {\"hook\": \"opening line to grab attention\", \"script\": \"full narration text\", \"cta\": \"call to action at end\", \"tags\": [\"tag1\", \"tag2\", \"tag3\"]}. Topic ideas: fishing tips, species facts, gear advice, casting techniques, lure building/DIY lures, or tackle making. Make it engaging and informative!"
+            },
+            {
+              "name": "stream",
+              "value": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Generate Script (Ollama)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Ollama response and extract JSON\nconst response = $input.first().json;\nlet scriptData;\n\ntry {\n  // Ollama wraps response in a 'response' field\n  const rawText = response.response || JSON.stringify(response);\n  \n  // Extract JSON from response\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    scriptData = JSON.parse(jsonMatch[0]);\n  } else {\n    throw new Error('No JSON found in response');\n  }\n} catch (error) {\n  // Fallback script if parsing fails\n  scriptData = {\n    hook: \"Want to catch more fish?\",\n    script: \"Here's a pro tip that experienced anglers swear by. Pay attention to water temperature. Fish are cold-blooded, so their activity changes with temperature. In warmer water, fish metabolism speeds up and they feed more actively. In colder water, they slow down. Use a thermometer to check the water temp, then adjust your presentation speed accordingly. Fast retrieves in warm water, slow in cold. This simple adjustment can double your catch rate. Try it on your next fishing trip and see the difference!\",\n    cta: \"Subscribe for more fishing tips!\",\n    tags: [\"fishing\", \"fishingtips\", \"shorts\"]\n  };\n}\n\nreturn {\n  json: scriptData\n};"
+      },
+      "name": "Parse Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "host": "your-pi5-ip",
+        "user": "poe",
+        "command": "=cd ~/piper1-gpl/script && echo \"{{ $json.script }}\" | ./run --model en_US-ryan-high --output_file /tmp/narration.wav && base64 /tmp/narration.wav"
+      },
+      "name": "Generate Voiceover (Piper)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert base64 audio to binary\nconst base64Audio = $input.first().json.stdout.trim();\n\nreturn {\n  json: $input.first().json,\n  binary: {\n    audio: {\n      data: base64Audio,\n      mimeType: 'audio/wav',\n      fileName: 'narration.wav',\n      fileExtension: 'wav'\n    }\n  }\n};"
+      },
+      "name": "Convert Audio to Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst path = require('path');\n\n// Configuration\nconst ORGANIZED_FOOTAGE_DIR = '/home/poe/organized-footage';\nconst CLIPS_NEEDED = 4;\nconst TARGET_DURATION = 60;\n\n// Get script data\nconst scriptData = $input.first().json;\nconst scriptText = scriptData.script.toLowerCase();\n\n// Smart category selection based on script content\nconst categoryWeights = {\n  'catch': 0,\n  'casting': 0,\n  'reeling': 0,\n  'action': 0,\n  'scenery': 0,\n  'underwater': 0,\n  'gear': 0,\n  'boat': 0,\n  'broll': 0\n};\n\n// Analyze script to determine relevant categories\nif (scriptText.includes('cast') || scriptText.includes('presentation')) categoryWeights.casting += 3;\nif (scriptText.includes('fight') || scriptText.includes('reel')) categoryWeights.reeling += 3;\nif (scriptText.includes('catch') || scriptText.includes('fish')) categoryWeights.catch += 2;\nif (scriptText.includes('water') || scriptText.includes('lake') || scriptText.includes('river')) categoryWeights.scenery += 2;\nif (scriptText.includes('gear') || scriptText.includes('lure') || scriptText.includes('bait')) categoryWeights.gear += 2;\nif (scriptText.includes('under') || scriptText.includes('below')) categoryWeights.underwater += 2;\n\n// Get clips from weighted categories\nconst selectedClips = [];\nconst sortedCategories = Object.entries(categoryWeights)\n  .sort(([,a], [,b]) => b - a)\n  .map(([cat]) => cat);\n\n// Try to get clips from each category\nfor (const category of sortedCategories) {\n  const categoryPath = path.join(ORGANIZED_FOOTAGE_DIR, category);\n  \n  if (fs.existsSync(categoryPath)) {\n    const files = fs.readdirSync(categoryPath)\n      .filter(f => /\\.(mp4|mov|avi|mkv)$/i.test(f))\n      .map(f => path.join(categoryPath, f));\n    \n    // Randomly select from this category\n    if (files.length > 0) {\n      const randomIndex = Math.floor(Math.random() * files.length);\n      selectedClips.push(files[randomIndex]);\n    }\n  }\n  \n  if (selectedClips.length >= CLIPS_NEEDED) break;\n}\n\n// Fallback to b-roll if not enough clips\nif (selectedClips.length < CLIPS_NEEDED) {\n  const brollPath = path.join(ORGANIZED_FOOTAGE_DIR, 'broll');\n  if (fs.existsSync(brollPath)) {\n    const brollFiles = fs.readdirSync(brollPath)\n      .filter(f => /\\.(mp4|mov|avi|mkv)$/i.test(f))\n      .map(f => path.join(brollPath, f));\n    \n    while (selectedClips.length < CLIPS_NEEDED && brollFiles.length > 0) {\n      const randomIndex = Math.floor(Math.random() * brollFiles.length);\n      selectedClips.push(brollFiles.splice(randomIndex, 1)[0]);\n    }\n  }\n}\n\nif (selectedClips.length === 0) {\n  throw new Error('No video clips found in organized footage');\n}\n\nreturn {\n  json: {\n    ...scriptData,\n    selectedClips: selectedClips,\n    clipDuration: TARGET_DURATION / selectedClips.length,\n    categoriesUsed: sortedCategories.slice(0, selectedClips.length)\n  }\n};"
+      },
+      "name": "Smart Footage Selection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "notes": "Selects footage based on script content"
+    },
+    {
+      "parameters": {
+        "command": "=#!/bin/bash\nset -e\n\n# Get data from n8n\nSCRIPT='{{ $json.script }}'\nCLIPS='{{ JSON.stringify($json.selectedClips) }}'\nCLIP_DURATION={{ $json.clipDuration }}\n\n# Paths\nAUDIO_FILE=\"/tmp/narration_{{ $execution.id }}.wav\"\nOUTPUT_FILE=\"/tmp/final_short_{{ $execution.id }}.mp4\"\nCONCAT_FILE=\"/tmp/concat_{{ $execution.id }}.txt\"\nSUBTITLE_FILE=\"/tmp/subs_{{ $execution.id }}.srt\"\n\n# Save audio from binary data (assumes previous node saved it)\necho \"{{ $binary.audio.data }}\" | base64 -d > \"$AUDIO_FILE\"\n\n# Parse clips array and create concat file\necho \"$CLIPS\" | jq -r '.[]' | while read -r clip; do\n  echo \"file '$clip'\" >> \"$CONCAT_FILE\"\n  echo \"duration $CLIP_DURATION\" >> \"$CONCAT_FILE\"\ndone\n\n# Generate basic SRT subtitles (split script into timed segments)\ncat > \"$SUBTITLE_FILE\" << 'EOF'\n1\n00:00:00,000 --> 00:00:10,000\n{{ $json.hook }}\n\n2\n00:00:10,000 --> 00:00:55,000\n{{ $json.script }}\n\n3\n00:00:55,000 --> 00:01:00,000\n{{ $json.cta }}\nEOF\n\n# Assemble video with FFmpeg\nffmpeg -y \\\n  -f concat -safe 0 -i \"$CONCAT_FILE\" \\\n  -i \"$AUDIO_FILE\" \\\n  -filter_complex \"\n    [0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,\n    subtitles='$SUBTITLE_FILE':force_style='FontName=Arial Bold,FontSize=32,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=3,Alignment=2,MarginV=100'[v]\n  \" \\\n  -map \"[v]\" -map 1:a \\\n  -c:v libx264 -preset fast -crf 23 \\\n  -c:a aac -b:a 128k \\\n  -t 60 \\\n  -movflags +faststart \\\n  \"$OUTPUT_FILE\"\n\n# Output the file path\necho \"$OUTPUT_FILE\""
+      },
+      "name": "Assemble Video (FFmpeg)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.stdout.trim() }}",
+        "options": {}
+      },
+      "name": "Read Final Video",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos",
+        "authentication": "oAuth2",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,status"
+            },
+            {
+              "name": "uploadType",
+              "value": "multipart"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "video",
+              "value": "={{ $binary.data }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ JSON.stringify({\n  title: 'Fishing Tip: ' + $('Parse Script JSON').item.json.hook,\n  description: $('Parse Script JSON').item.json.script + '\\n\\n' + $('Parse Script JSON').item.json.cta + '\\n\\n#Shorts #Fishing',\n  tags: $('Parse Script JSON').item.json.tags,\n  categoryId: '17'\n}) }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ JSON.stringify({\n  privacyStatus: 'public',\n  selfDeclaredMadeForKids: false\n}) }}"
+            }
+          ]
+        }
+      },
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1850, 300],
+      "notesInFlow": true,
+      "notes": "Requires YouTube Data API v3 OAuth2 credentials"
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate Script (Ollama)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script (Ollama)": {
+      "main": [
+        [
+          {
+            "node": "Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "Generate Voiceover (Piper)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voiceover (Piper)": {
+      "main": [
+        [
+          {
+            "node": "Convert Audio to Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Audio to Binary": {
+      "main": [
+        [
+          {
+            "node": "Select Random Footage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Random Footage": {
+      "main": [
+        [
+          {
+            "node": "Assemble Video (FFmpeg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Video (FFmpeg)": {
+      "main": [
+        [
+          {
+            "node": "Read Final Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Final Video": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,195 @@
+{
+  "name": "AI Video Organization Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "name": "Weekly Organization Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Run organization weekly or manually"
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "host": "your-pi5-ip",
+        "user": "poe",
+        "command": "cd ~/video-organizer && python3 organize_footage.py /mnt/fishing-footage /home/poe/organized-footage 2>&1"
+      },
+      "name": "Run Video Organizer on Pi5",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse organizer output and get statistics\nconst output = $input.first().json.stdout;\n\n// Extract category counts\nconst categoryRegex = /([a-z_]+)\\.+ (\\d+) videos/g;\nconst categories = {};\nlet match;\n\nwhile ((match = categoryRegex.exec(output)) !== null) {\n  categories[match[1]] = parseInt(match[2]);\n}\n\n// Extract total count\nconst totalMatch = output.match(/Total organized: (\\d+) videos/);\nconst total = totalMatch ? parseInt(totalMatch[1]) : 0;\n\n// Check for errors\nconst hasErrors = output.includes('Error:') || output.includes('✗');\n\nreturn {\n  json: {\n    categories,\n    total,\n    hasErrors,\n    output,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "name": "Parse Organization Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "host": "your-pi5-ip",
+        "user": "poe",
+        "command": "cat /home/poe/organized-footage/video_metadata.json"
+      },
+      "name": "Fetch Metadata Database",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse metadata and create usable database\nconst metadataJson = $input.first().json.stdout;\nconst metadata = JSON.parse(metadataJson);\n\n// Convert to array for easier processing\nconst videos = Object.values(metadata).map(video => ({\n  originalPath: video.original_path,\n  organizedPath: video.organized_path,\n  category: video.primary_category,\n  allCategories: video.categories,\n  duration: video.video_info?.duration || 0,\n  resolution: video.video_info?.resolution || 'unknown',\n  processedDate: video.processed_date\n}));\n\n// Create category index for quick access\nconst byCategory = {};\nvideos.forEach(video => {\n  if (!byCategory[video.category]) {\n    byCategory[video.category] = [];\n  }\n  byCategory[video.category].push(video.organizedPath);\n});\n\nreturn {\n  json: {\n    videos,\n    byCategory,\n    totalVideos: videos.length,\n    categories: Object.keys(byCategory)\n  }\n};"
+      },
+      "name": "Build Video Database",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/video-database-updated",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "byCategory",
+              "value": "={{ JSON.stringify($json.byCategory) }}"
+            },
+            {
+              "name": "totalVideos",
+              "value": "={{ $json.totalVideos }}"
+            },
+            {
+              "name": "categories",
+              "value": "={{ JSON.stringify($json.categories) }}"
+            }
+          ]
+        }
+      },
+      "name": "Update Video Database Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 300],
+      "notes": "Notifies other workflows that database is updated"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $('Parse Organization Results').item.json.hasErrors }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check for Errors",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "content": "=🚨 Video Organization Alert\n\nThe video organization process encountered errors:\n\n{{ $('Parse Organization Results').item.json.output }}\n\nPlease check the Pi5 logs.",
+        "options": {}
+      },
+      "name": "Send Error Notification",
+      "type": "n8n-nodes-base.email",
+      "typeVersion": 2,
+      "position": [850, 600],
+      "notes": "Configure your email settings"
+    }
+  ],
+  "connections": {
+    "Weekly Organization Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Video Organizer on Pi5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Video Organizer on Pi5": {
+      "main": [
+        [
+          {
+            "node": "Parse Organization Results",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check for Errors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Organization Results": {
+      "main": [
+        [
+          {
+            "node": "Fetch Metadata Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Metadata Database": {
+      "main": [
+        [
+          {
+            "node": "Build Video Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Video Database": {
+      "main": [
+        [
+          {
+            "node": "Update Video Database Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Errors": {
+      "main": [
+        [
+          {
+            "node": "Send Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
