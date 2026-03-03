@@ -1,0 +1,79 @@
+{
+  "name": "Shopify Abandoned Cart Recovery",
+  "nodes": [
+    {
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Abandoned Carts",
+      "type": "n8n-nodes-base.shopify",
+      "position": [450, 300],
+      "parameters": {
+        "resource": "cart",
+        "operation": "getAll"
+      }
+    },
+    {
+      "name": "Filter by Time",
+      "type": "n8n-nodes-base.filter",
+      "position": [650, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{Date.now() - $json.last_updated * 1000}}",
+              "operation": "gt",
+              "value2": 3600000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [850, 250],
+      "parameters": {
+        "subject": "Forgot something? Your cart is waiting!",
+        "text": "Hi {{$json.customer.first_name}},\n\nWe noticed you left items in your cart. Complete your purchase now!\n\n{{$json.items}}"
+      }
+    },
+    {
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.twilio",
+      "position": [850, 400],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "to": "={{$json.customer.phone}}",
+        "body": "Hi {{$json.customer.first_name}}, you left items in your cart! Complete purchase: {{store_url}}/cart"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{ "node": "Get Abandoned Carts", "type": "main" }]]
+    },
+    "Get Abandoned Carts": {
+      "main": [[{ "node": "Filter by Time", "type": "main" }]]
+    },
+    "Filter by Time": {
+      "main": [
+        [{ "node": "Send Email", "type": "main" }],
+        [{ "node": "Send WhatsApp", "type": "main" }]
+      ]
+    }
+  }
+}
