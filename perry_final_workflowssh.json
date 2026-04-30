@@ -44,7 +44,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.179:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -83,14 +83,14 @@
       "credentials": {
         "sshPassword": {
           "id": "1",
-          "name": "poe@192.168.0.227"
+          "name": "local-pi-ssh"
         }
       },
       "notes": "SSH to Pi and run Piper directly"
     },
     {
       "parameters": {
-        "url": "http://192.168.0.179:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",

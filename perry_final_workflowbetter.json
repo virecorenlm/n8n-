@@ -44,7 +44,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.179:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -71,7 +71,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.227:5000/",
+        "url": "http://YOUR_TTS_HOST:5000/",
         "method": "POST",
         "sendBody": true,
         "bodyParametersJson": "={{ JSON.stringify({ text: $json.script, voice_name: 'en_US-ryan-high' }) }}",
@@ -93,7 +93,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.179:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
