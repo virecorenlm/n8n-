@@ -76,7 +76,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const crypto = require('crypto');\nconst hmacHeader = $input.item.json.hmac_signature;\nconst rawPayload = $input.item.json.raw_payload;\nconst shopifySecret = process.env.SHOPIFY_WEBHOOK_SECRET || 'your-shopify-webhook-secret-here';\nconst calculatedHmac = crypto.createHmac('sha256', shopifySecret).update(rawPayload, 'utf8').digest('base64');\nconst isValid = hmacHeader === calculatedHmac;\nconst isDevelopment = true;\nif (!isValid && !isDevelopment) { throw new Error('Invalid Shopify HMAC signature'); }\nreturn { json: { ...$input.item.json, signature_valid: isValid, security_check: isValid ? 'PASSED' : 'BYPASSED (dev mode)' } };"
+        "jsCode": "const crypto = require('crypto');\nconst hmacHeader = $input.item.json.hmac_signature;\nconst rawPayload = $input.item.json.raw_payload;\nconst shopifySecret = process.env.SHOPIFY_WEBHOOK_SECRET || 'your-shopify-webhook-secret-here';\nconst calculatedHmac = crypto.createHmac('sha256', shopifySecret).update(rawPayload, 'utf8').digest('base64');\nconst isValid = hmacHeader === calculatedHmac;\nconst isDevelopment = false;\nif (!isValid && !isDevelopment) { throw new Error('Invalid Shopify HMAC signature'); }\nreturn { json: { ...$input.item.json, signature_valid: isValid, security_check: isValid ? 'PASSED' : 'BYPASSED (dev mode)' } };"
       },
       "id": "verify-signature",
       "name": "Verify Shopify Signature",
@@ -315,7 +315,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.122:XXXX/mcp-endpoint",
+        "url": "http://YOUR_MCP_HOST:PORT/mcp-endpoint",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,

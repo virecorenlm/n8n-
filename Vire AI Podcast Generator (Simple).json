@@ -37,7 +37,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.135:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -82,7 +82,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.228:5000/tts",
+        "url": "http://YOUR_TTS_HOST:5000/tts",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -126,7 +126,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.0.122:8000/api/v1/collections/vire_podcasts/add",
+        "url": "http://YOUR_VECTOR_DB_HOST:8000/api/v1/collections/vire_podcasts/add",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [

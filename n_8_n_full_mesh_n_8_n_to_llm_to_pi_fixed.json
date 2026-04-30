@@ -48,7 +48,7 @@
     {
       "parameters": {
         "requestMethod": "POST",
-        "url": "={{$json[\"pi_url\"] || 'http://192.168.0.xxx:5000/sensory'}}",
+        "url": "={{$json[\"pi_url\"] || 'http://YOUR_PI_HOST:5000/sensory'}}",
         "jsonParameters": true,
         "options": {},
         "bodyParametersJson": "={\"type\": \"request_context\", \"payload\": {\"text\": $json.input_text, \"trigger\": $json.action}}"
@@ -72,7 +72,7 @@
     {
       "parameters": {
         "requestMethod": "POST",
-        "url": "={{$json[\"pi_tts_url\"] || 'http://192.168.0.xxx:5000/tts'}}",
+        "url": "={{$json[\"pi_tts_url\"] || 'http://YOUR_TTS_HOST:5000/tts'}}",
         "jsonParameters": true,
         "bodyParametersJson": "={\"voice\": \"piper_default\", \"text\": $json.merged[0].body.generated_text || $json.merged[0].body.text || $json.merged[1].body.note || '...'}"
       },

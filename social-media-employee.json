@@ -36,7 +36,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.xxx:5001/shopify-analyze",
+        "url": "http://YOUR_VISION_HOST:5001/shopify-analyze",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -53,7 +53,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.xxx:11434/api/generate",
+        "url": "http://YOUR_OLLAMA_HOST:11434/api/generate",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -80,7 +80,7 @@
     },
     {
       "parameters": {
-        "url": "http://192.168.0.xxx:5000/api/tts",
+        "url": "http://YOUR_TTS_HOST:5000/api/tts",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
